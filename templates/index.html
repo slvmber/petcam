@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PetCam</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+<h1>PetCam</h1>
+
+<div class="camera-box">
+    <img
+        src="{{ url_for('video_feed') }}"
+        alt="Live Camera Feed"
+        width="640"
+        height="480">
+</div>
+
+<p class="status">Status: Online</p>
+
+</body>
+</html>
