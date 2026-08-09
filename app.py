@@ -1,28 +1,67 @@
 from flask import Flask, render_template, abort, request, Response
 import cv2
+import threading
+import time
 
 app = Flask(__name__)
 
-# Open the first webcam
 camera = None
+camera_lock = threading.Lock()
+
 
 def get_camera():
     global camera
 
-    if camera is None or not camera.isOpened():
-        camera = cv2.VideoCapture("/dev/video0")
+    with camera_lock:
+        if camera is None or not camera.isOpened():
+            print("Opening camera...")
 
-    return camera
+            camera = cv2.VideoCapture("/dev/video0", cv2.CAP_V4L2)
+
+            if not camera.isOpened():
+                print("ERROR: Could not open /dev/video0")
+                camera = None
+                return None
+
+            # Optional: set resolution
+            camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+            print("Camera opened successfully")
+
+        return camera
+
+
+def reset_camera():
+    global camera
+
+    with camera_lock:
+        if camera is not None:
+            print("Releasing camera...")
+            camera.release()
+            camera = None
+
 
 def generate_frames():
     while True:
+
         cam = get_camera()
 
-        success, frame = cam.read()
+        if cam is None:
+            print("Camera unavailable, retrying...")
+            time.sleep(2)
+            continue
+
+        # Only one thread can access VideoCapture at a time
+        with camera_lock:
+            success, frame = cam.read()
 
         if not success:
             print("Camera frame failed, reconnecting...")
-            cam.release()
+
+            reset_camera()
+
+            time.sleep(1)
             continue
 
         success, buffer = cv2.imencode(".jpg", frame)
@@ -30,14 +69,15 @@ def generate_frames():
         if not success:
             continue
 
-        frame = buffer.tobytes()
+        frame_bytes = buffer.tobytes()
 
         yield (
             b"--frame\r\n"
             b"Content-Type: image/jpeg\r\n\r\n"
-            + frame
+            + frame_bytes
             + b"\r\n"
         )
+
 
 @app.route("/")
 def home():
@@ -56,7 +96,6 @@ def video_feed():
 def debug():
     user_ip = request.remote_addr
 
-    # Allow local testing from the VM and your LAN
     if not (
         user_ip.startswith("192.168.1.")
         or user_ip == "127.0.0.1"
@@ -72,4 +111,8 @@ def forbidden(error):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        threaded=True
+    )
